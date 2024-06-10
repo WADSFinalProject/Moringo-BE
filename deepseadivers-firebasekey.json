@@ -1,0 +1,15 @@
+
+{
+    "type": "service_account",
+    "project_id": "deepseadivers-cd7cc",
+    "private_key_id": "4abfe4a39fa92454041cc75889d8c8a339f6e818",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDJW73a/AcvXvXe\n0GdMElmeJA0hyi1GkF+LsrmkpoRVdBSoPDq2fuWpYzK5dx+QYtRTZRL0dFG+eiwb\nAXJCTL7tt4QgZxpove6dY05+q6qBmJsGfwNeR4onAnjjYdGi7yGkndN+sO5M5qI4\n5npxt4b/HFPLBEHKm+Gn4CQ4kOLy7xoHD7tieIBIwUOQKoEe8UiI1Zbn+g5aVlNh\n7NUYyUkzOOVjuM0VxWrL+bBN+z2QymSxhpYpnc6DttfjWe/k++jWVwEJDX3ITtzP\nHIO5Q+KUEFanIlR6dP8rccMohBJXzgpKDldJNQFZ91muG3ewg33fqU40nM0Gvrbi\nBZOcQmr/AgMBAAECggEATQDDCagg/Uok36k2H57S28mwpe/hwZ77kvptyRwO9nj2\nX2HtGBZOMKlpYAjAruBEj4HTLl3/Vsb07/ztG5Kq31CzfArBzDV6N4EfJwzyHy5j\ndqgC+z6DhCiLX3VsjJFDfecHVudFsm3usrDdOXi0bQIBv10o5dkYAjGS2Hj7+Wet\nmh9tP8bGotUyKLavCpk/ajubLgJkKsQ3Oft5TXTbxmqveb/eIErEA84+AHvjh2DI\nnwQ2MM0ELb4VrX8eUM7NjMWC3idV2pcnL/OgjjnQd42PQi8u+Me+s17g5ZOKdOKs\nGPzHrw3RBRUsC1bFU5IYyd9z+4x5u/X2Xkgr2uocoQKBgQD0ts8Kp4fOVe3iooPC\nKMhzxNwUSrQp0CpLKWvNROyf1uVoArWQh1WAYrL6S8S50EqCRwWJREDvlV7bcTNM\nxfc2e8CtMKfReUvH9pN/i7O+/hJYQpKjkXHGdaBWcK1/YQtJxoq7Q8gE9q+9yOFI\n1lg/7xleFWSDOW+iKYo0KtQJ3wKBgQDSpQ7YVwBr0e03WJ5rJiTjYKTVTJvR8qLy\n79YWr2uTKrrux9VB5Z0WBBwKwXg9T261dYhGZezNlEEpp39/9WiUjWnsf7AE28xE\njSoiU9U2XIfJ7Hm9E3TiFyQC0KUHSsX9e3N2uDwqRGEGv7I01ZvjdIaKyhKRiKFE\nrM++Lm4C4QKBgQC9d1CDykPucD9XSkZDLHpOj+tpVpF5Ei+8s9xAOI4QDzzcs8RJ\nm06KsWArRECTMP6PMVfK+GpiVL71ngZ++YM2zsfWD6bPG1+d+X4nsU1AocwoQ5rv\nQ2vYoTe71U+vIL6xpyPAa3FQzoIwqXgrgbEgBwoX+u4wX2bcIddcHpC+9wKBgEOf\nR2++Jl12rA+bfGfre+YezWvIRzGUEimpQvJPaFp7Wj1zm4unGdHKifIN//q2uFS6\noX/wEqBAmtazdePvNZ6S81FAAJLeuOm846zXetgTxmfVaZOAXoKCaUYaExCPOZZR\nflS7el0bTIatHZmGhZ/0dYiyrFlaImN4ksx7/UchAoGAYEEth6xrBtVZsx9THPxa\nfwNfugzpQN1IKcULEs0L83BGQ64G7/HHOF5WcMTnSqwjHloaCZpxj6J/8HrISVAR\nZymh0XmcI7rmYDeZRSoS4rWKZ2jhLiN4i5+OBLxzFuOXHDy5G/VTc05TD0fCSVh7\nR614l/PPap6GdECp/RfNtg0=\n-----END PRIVATE KEY-----\n",
+    "client_email": "firebase-adminsdk-l2dc2@deepseadivers-cd7cc.iam.gserviceaccount.com",
+    "client_id": "109506571666778873004",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-l2dc2%40deepseadivers-cd7cc.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+  }
+  
