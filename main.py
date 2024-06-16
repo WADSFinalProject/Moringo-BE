@@ -2,7 +2,7 @@ import uvicorn
 import mysql.connector
 import firebase_admin
 from firebase_admin import credentials, auth
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from pyzbar.pyzbar import decode
 from PIL import Image
 import io
@@ -107,7 +107,8 @@ mysql_connection = mysql.connector.connect(
 
 
 
-
+def get_mysql_connection():
+    return mysql_connection
 
 
 # Utility function to get the current user
@@ -117,12 +118,14 @@ def get_current_user(token: str):
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("email")
         user_id = payload.get("user_id")
+        user_role = payload.get("user_role")
+        branch = payload.get("branch")
 
         # Retrieve user details from Firebase using the email
         user = auth.get_user_by_email(email)
 
         # If user is retrieved and authenticated, return the user object and user ID
-        return {"user": user, "user_id": user_id}
+        return {"user": user, "user_id": user_id, "user_role": user_role, "branch":branch}
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
@@ -216,16 +219,17 @@ class MoringaLeavesSchema(BaseModel):
     weight_received: float
     expiry_time: str
 
+
+
 # DryingResultsSchema
 class DryingResultsSchema(BaseModel):
     date_dried: str
     weight_dried: float
-    exp_date: str
-
-# FlourProductionSchema
-class FlourProductionSchema(BaseModel):
-    date_recorded: str
-    powder_weight: float
+    
+# DryingResultFind
+class DryingResultFind(BaseModel):
+    centra_name: str
+    production_date: str  
     
 
 # ShipmentSchema
@@ -239,7 +243,8 @@ class ShipmentSchema(BaseModel):
 # MoringaBatchesSchema
 class MoringaBatchesSchema(BaseModel):
     weight_received: float
-    date_received: str
+    entryDate: str
+
 
 
 #BarcodeScannerSchema
@@ -248,25 +253,25 @@ class Barcode(BaseModel):
     barcode_type: str    
 
 
+#WeightUpdateSchema
+class WeightUpdateSchema(BaseModel):
+    centra_name: str
+    new_weight: float
 
 
-
-
+class DeleteLatestBatchRequest(BaseModel):
+    centra_name: str
 
 
 ############################################################### SCHEMA END ##################################################
 ############################################################### FUNCTIONS ###################################################
 def create_token(email: str) -> str:
-    
-    SECRET_KEY = "epik_key"
-    ALGORITHM = "HS256"
-
     # token expiration (10 hours from the current time)
     expiration = datetime.utcnow() + timedelta(hours=10)
 
-    # Fetch username and user id from SQL database based on target email
+    # Fetch user details from SQL database based on email
     cursor = mysql_connection.cursor()
-    select_query = "SELECT username, id FROM user_signups WHERE email = %s"
+    select_query = "SELECT username, id, user_role, branch, first_name, last_name FROM user_signups WHERE email = %s"
     cursor.execute(select_query, (email,))
     result = cursor.fetchone()
     cursor.close()
@@ -274,14 +279,18 @@ def create_token(email: str) -> str:
     if not result:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Extract username and user ID from the SQL query result
-    username, user_id = result
+    # Extract user details from the SQL query result
+    username, user_id, user_role, branch, first_name, last_name = result
 
-    # Create token payload including username, email, user ID, and expiration time
+    # Create token payload including username, email, user ID, user_role, branch, and expiration time
     token_payload = {
         "username": username,
         "email": email,
         "user_id": user_id,
+        "user_role": user_role,
+        "branch": branch,
+        "first_name": first_name,
+        "last_name": last_name,
         "exp": expiration
     }
 
@@ -291,96 +300,6 @@ def create_token(email: str) -> str:
 
 
 
-def update_remaining_time(machine_status_id: int, start_time: datetime, processing_time: int, mysql_connection: mysql.connector.MySQLConnection):
-    while True:
-        elapsed_time = (datetime.utcnow() - start_time).total_seconds()
-        remaining_time = max(processing_time - elapsed_time, 0)  # Ensure remaining time does not go below 0
-        cursor = mysql_connection.cursor()
-        cursor.execute("UPDATE centra_machine_status SET remaining_time = %s WHERE id = %s", (remaining_time, machine_status_id))
-        mysql_connection.commit()
-        cursor.close()
-        if remaining_time <= 0:
-            break
-        time.sleep(1)  # Update every second
-
-
-
-
-def start_machine_processing(total_weight, batches_to_process, last_started, mysql_connection, background_tasks):
-    processing_time = 40 # seconds
-
-    cursor = mysql_connection.cursor()
-
-    # Check if the row with id = 0 exists
-    cursor.execute("SELECT COUNT(*) FROM centra_machine_status WHERE id = 0")
-    row_count = cursor.fetchone()[0]
-
-    if row_count == 0:
-        # Row does not exist, insert it
-        cursor.execute(
-            "INSERT INTO centra_machine_status (id, current_weight, is_processing, last_started, remaining_time) VALUES (0, %s, TRUE, %s, %s)",
-            (total_weight, last_started, processing_time)
-        )
-    else:
-        # Row exists, update it
-        cursor.execute(
-            "UPDATE centra_machine_status SET current_weight = %s, is_processing = TRUE, last_started = %s, remaining_time = %s WHERE id = 0",
-            (total_weight, last_started, processing_time)
-        )
-
-    mysql_connection.commit()
-    cursor.close()
-
-    background_tasks.add_task(update_remaining_time, 0, last_started, processing_time, mysql_connection)
-
-    # Schedule a task to reset machine status and delete processed batches when timer reaches 0
-    background_tasks.add_task(reset_machine_status, batches_to_process, mysql_connection, background_tasks)
-
-
-
-def reset_machine_status(batches_to_process, mysql_connection, background_tasks):
-    time.sleep(1)  # Wait for processing time to elapse
-
-    cursor = mysql_connection.cursor()
-
-    # Delete batches with processing state of 1
-    cursor.execute("DELETE FROM centra_moringa_batches WHERE processing_state = TRUE")
-    mysql_connection.commit()
-
-    # Reset machine status
-    cursor.execute("UPDATE centra_machine_status SET current_weight = 0, is_processing = FALSE, remaining_time = 0")
-    mysql_connection.commit()
-
-    # Read moringa batches table using FIFO method
-    cursor.execute("SELECT batch_id, weight_received, expiry_time FROM centra_moringa_batches WHERE processing_state = FALSE ORDER BY expiry_time")
-    batches = cursor.fetchall()
-
-    # Start adding batches until machine fills up to 30 kg
-    total_weight = 0
-    for batch in batches:
-        batch_id, batch_weight, _ = batch
-        # Calculate how much of the batch can be accepted
-        remaining_capacity = 30 - total_weight
-        accepted_weight = min(batch_weight, remaining_capacity)
-
-        # Update the current weight in the machine status
-        total_weight += accepted_weight
-        cursor.execute("UPDATE centra_machine_status SET current_weight = %s", (total_weight,))
-        mysql_connection.commit()
-
-        # Update the processing state of the batch
-        cursor.execute("UPDATE centra_moringa_batches SET processing_state = TRUE WHERE batch_id = %s", (batch_id,))
-        mysql_connection.commit()
-
-        # Check if machine fills up to 30 kg
-        if total_weight >= 30:
-            break
-
-    cursor.close()
-
-    # Start machine processing if weight reaches or exceeds 30 kg
-    if total_weight >= 30:
-        start_machine_processing(total_weight, [], datetime.utcnow(), mysql_connection, background_tasks)
 
 
 
@@ -521,16 +440,31 @@ async def edit_user(user_id: int, user_data: UserEditSchema):
 
 
 
-
 @app.post('/login')
 async def login(login_data: LoginSchema):
     email = login_data.email
     password = login_data.password
 
-    try:
-        # Authenticate user using Firebase Admin SDK
-        user = auth.get_user_by_email(email)
+    cursor = mysql_connection.cursor()
+    select_query = "SELECT password, status FROM user_signups WHERE email = %s"
+    cursor.execute(select_query, (email,))
+    result = cursor.fetchone()
+    
+    if not result:
+        cursor.close()
+        raise HTTPException(status_code=400, detail="Invalid credentials")
 
+    stored_password, status = result
+
+    if stored_password != password:
+        cursor.close()
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+
+    if status != "approved":
+        cursor.close()
+        raise HTTPException(status_code=400, detail="User account not approved")
+
+    try:
         # Generate token with username, email, and user ID
         token = create_token(email)
 
@@ -539,16 +473,111 @@ async def login(login_data: LoginSchema):
             content={"message": "Login successful", "token": token},
             status_code=200
         )
-    except auth.UserNotFoundError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid credentials"
-        )
     except Exception as e:
+        cursor.close()
         raise HTTPException(
             status_code=400,
             detail=f"Login failed: {str(e)}"
         )
+
+# Utility function to get the current user
+def get_current_user(token: str):
+    try:
+        # Decode the token to extract the payload
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("email")
+        user_id = payload.get("user_id")
+        user_role = payload.get("user_role")
+        branch = payload.get("branch")
+        first_name = payload.get("first_name")
+        last_name = payload.get("last_name")
+
+        # Retrieve user details from Firebase using the email
+        user = auth.get_user_by_email(email)
+
+        # If user is retrieved and authenticated, return the user object and user ID
+        return {"user": user, "user_id": user_id, "user_role": user_role, "branch":branch, "first_name":first_name, "last_name":last_name}
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.DecodeError:
+        raise HTTPException(status_code=401, detail="Could not decode token")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except auth.UserNotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+
+
+
+
+def update_remaining_time(machine_id: int, duration: int):
+    cursor = mysql_connection.cursor()
+    try:
+        for remaining in range(duration, -1, -1):
+            cursor.execute("UPDATE centra_machine_drying_status SET remaining_time = %s WHERE machine_id = %s", (remaining, machine_id))
+            mysql_connection.commit()
+            time.sleep(1)
+
+        # Set current_weight to 0 and is_processing to 0 after the timer finishes
+        cursor.execute("UPDATE centra_machine_drying_status SET current_weight = 0, is_processing = 0 WHERE machine_id = %s", (machine_id,))
+        mysql_connection.commit()
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
+
+@app.post('/centra/start_machine/{machine_id}')
+def start_machine(machine_id: int, background_tasks: BackgroundTasks):
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Check if the machine exists and get the current state
+        cursor.execute("SELECT is_processing FROM centra_machine_drying_status WHERE machine_id = %s", (machine_id,))
+        result = cursor.fetchone()
+        if result is None:
+            raise HTTPException(status_code=404, detail="Machine not found")
+
+        is_processing = result[0]
+        if is_processing:
+            raise HTTPException(status_code=400, detail="Machine is already processing")
+
+        # Start the machine
+        cursor.execute("UPDATE centra_machine_drying_status SET is_processing = 1, remaining_time = 60 WHERE machine_id = %s", (machine_id,))
+        mysql_connection.commit()
+
+        # Add the background task to update the timer
+        background_tasks.add_task(update_remaining_time, machine_id, 60)
+
+        return {"message": "Machine started successfully"}
+
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
+
+
+
+
+
+
+
+
+@app.get('/current_user')
+async def get_current_user_details(Authorization: Optional[str] = Header(None)):
+    if Authorization is None:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+
+    try:
+        token = Authorization.split(" ")[1]
+    except IndexError:
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
+
+    current_user = get_current_user(token)
+    return current_user
 
 
 
@@ -584,112 +613,158 @@ async def reset_password(reset_data: ResetPasswordSchema, current_user: dict = D
         return {"message": "Password reset successfully in MySQL and Firebase"}
     except Exception as e:
         return {"message": f"Failed to reset password: {str(e)}"}
-    
+
+
+
+@app.post('/centra/drying_machine_update_weight')
+def dyring_machine_update_weight(weight_update: WeightUpdateSchema):
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Check if the machine with the given centra_name exists
+        cursor.execute("SELECT machine_id FROM centra_machine_drying_status WHERE centra_name = %s", (weight_update.centra_name,))
+        result = cursor.fetchone()
+        if result is None:
+            raise HTTPException(status_code=404, detail="Machine with given centra name not found")
+
+        # Update the current weight of the machine
+        cursor.execute("UPDATE centra_machine_drying_status SET current_weight = %s WHERE centra_name = %s", (weight_update.new_weight, weight_update.centra_name))
+        mysql_connection.commit()
+
+        return {"message": "Machine weight updated successfully"}
+
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
 
 
 
 @app.post('/centra/moringa_batches')
-def record_moringa_batches(moringa_data: MoringaBatchesSchema, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    date_received = datetime.strptime(moringa_data.date_received, "%Y-%m-%d")
+def record_moringa_batches(moringa_data: MoringaBatchesSchema, current_user: dict = Depends(get_current_user)):
     current_time = datetime.now()
-    time_received = current_time.strftime("%H:%M:%S")
-    expiry_time = datetime.combine(date_received.date(), current_time.time()) + timedelta(hours=4)
+    entryDate = datetime.strptime(moringa_data.entryDate, "%Y-%m-%d").date()
+    entryTime = current_time.strftime("%H:%M:%S")
+    expiry_time = current_time + timedelta(hours=4)
 
     cursor = mysql_connection.cursor()
 
-    # Check the current weight in the machine status
-    cursor.execute("SELECT current_weight FROM centra_machine_status WHERE id = 0 FOR UPDATE")
-    machine_status = cursor.fetchone()
-    if not machine_status:
-        # Initialize machine status if it doesn't exist
-        cursor.execute("INSERT INTO centra_machine_status (id, current_weight, is_processing) VALUES (0, 0, FALSE)")
+    try:
+        centra_name = current_user.get('branch')
+
+        insert_query = """
+            INSERT INTO centra_moringa_batches (centra_name, entryDate, entryTime, weight_received, expiry_time, processing_state)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(insert_query, (centra_name, entryDate, entryTime, moringa_data.weight_received, expiry_time, False))
         mysql_connection.commit()
-        cursor.execute("SELECT current_weight FROM centra_machine_status WHERE id = 0 FOR UPDATE")
-        machine_status = cursor.fetchone()
 
-    current_weight = machine_status[0]
+        return {"message": "Moringa batch recorded successfully with expiry time."}
 
-    # Calculate how much of the batch can be accepted
-    max_weight = 30
-    remaining_capacity = max_weight - current_weight
-    accepted_weight = min(moringa_data.weight_received, remaining_capacity)
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to record moringa batch: {str(e)}")
 
-    # Insert the batch data into the centra_moringa_batches table with the received and accepted weight
-    insert_query = """
-        INSERT INTO centra_moringa_batches (user_id, date_received, time_received, weight_received, accepted_weight, expiry_time, processing_state)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """
-    cursor.execute(insert_query, (current_user['user_id'], date_received, time_received, moringa_data.weight_received, accepted_weight, expiry_time, False))
-    mysql_connection.commit()
-
-    # Update the current weight in the machine status
-    new_weight = current_weight + accepted_weight
-    cursor.execute("UPDATE centra_machine_status SET current_weight = %s WHERE id = 0", (new_weight,))
-    mysql_connection.commit()
-
-    # Check if part of the batch was rejected due to over capacity
-    rejected_weight = moringa_data.weight_received - accepted_weight
-    if rejected_weight > 0:
+    finally:
         cursor.close()
-        return JSONResponse(
-            content={"message": f"Batch recorded. Accepted {accepted_weight} kg. Rejected {rejected_weight} kg due to machine capacity limit."},
-            status_code=200
-        )
-
-    # Check and process batches if the new weight meets or exceeds the threshold
-    if new_weight >= 30:
-
-        # Update process state
-        cursor.execute("UPDATE centra_moringa_batches SET processing_state = TRUE WHERE processing_state = FALSE")
-        mysql_connection.commit()
-        # Start machine processing immediately if weight reaches or exceeds 30 kg
-        cursor.execute("SELECT processing_state FROM centra_moringa_batches WHERE processing_state = FALSE ORDER BY expiry_time")
-        batches = cursor.fetchall()
-        batch_ids = [batch[0] for batch in batches]
-        start_machine_processing(new_weight, batch_ids, datetime.utcnow(), mysql_connection, background_tasks)
-
-    cursor.close()
-
-    return {"message": f"Moringa batch recorded successfully with expiry time. Accepted {accepted_weight} kg."}
 
 
+@app.delete('/centra/moringa_batches/latest')
+def delete_latest_moringa_batch(request: DeleteLatestBatchRequest, current_user: dict = Depends(get_current_user)):
+    centra_name = request.centra_name
+    cursor = mysql_connection.cursor()
 
+    try:
+        # Find the latest batch id for the given centra_name
+        select_query = """
+            SELECT id
+            FROM centra_moringa_batches
+            WHERE centra_name = %s
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        cursor.execute(select_query, (centra_name,))
+        latest_batch = cursor.fetchone()
+
+        if latest_batch:
+            latest_batch_id = latest_batch[0]
+
+            # Delete the latest batch
+            delete_query = """
+                DELETE FROM centra_moringa_batches
+                WHERE id = %s
+            """
+            cursor.execute(delete_query, (latest_batch_id,))
+            mysql_connection.commit()
+
+            return {"message": f"Latest batch for {centra_name} deleted successfully."}
+        else:
+            raise HTTPException(status_code=404, detail=f"No batches found for {centra_name}")
+
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete latest batch: {str(e)}")
+
+    finally:
+        cursor.close()
 
 
 @app.post('/centra/drying_results')
-async def record_drying_results(drying_data: DryingResultsSchema, current_user: dict = Depends(get_current_user)):
-    date_dried = drying_data.date_dried
-    weight_dried = drying_data.weight_dried
-    exp_date = drying_data.exp_date
-
+def insert_drying_result(drying_data: DryingResultsSchema, current_user: dict = Depends(get_current_user)):
     cursor = mysql_connection.cursor()
-    insert_query = """
-        INSERT INTO centra_drying_results (user_id, date_dried, weight_dried, exp_date)
-        VALUES (%s, %s, %s, %s)
-    """
-    cursor.execute(insert_query, (current_user['user_id'], date_dried, weight_dried, exp_date))
-    mysql_connection.commit()
-    cursor.close()
-    return {"message": "Drying results recorded successfully"}
 
+    try:
+        centra_name = current_user.get('branch')
 
+        insert_query = """
+            INSERT INTO centra_drying_results (centra_name, date_dried, weight_dried)
+            VALUES (%s, %s, %s)
+        """
+        cursor.execute(insert_query, (centra_name, drying_data.date_dried, drying_data.weight_dried))
+        mysql_connection.commit()
 
+        return {"message": "Drying result recorded successfully."}
 
-@app.post('/centra/flour_production')
-async def record_flour_production(flour_data: FlourProductionSchema, current_user: dict = Depends(get_current_user)):
-    date_recorded = flour_data.date_recorded
-    powder_weight = flour_data.powder_weight
-    
+    except mysql.connector.Error as e:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to record drying result: {str(e)}")
 
+    finally:
+        cursor.close()
+
+@app.get('/centra/dried_leaves_batch')
+def get_dried_leaves_batch(centra_name: str, production_date: str):
     cursor = mysql_connection.cursor()
-    insert_query = """
-        INSERT INTO centra_powder (user_id, date_recorded, powder_weight)
-        VALUES (%s, %s, %s, %s)
-    """
-    cursor.execute(insert_query, (current_user['user_id'], date_recorded, powder_weight))
-    mysql_connection.commit()
-    cursor.close()
-    return {"message": "Flour production recorded successfully"}
+
+    try:
+        # Execute SQL query to fetch dried leaves batch
+        select_query = """
+            SELECT id, centra_name, date_dried, weight_dried
+            FROM centra_drying_results
+            WHERE centra_name = %s AND date_dried = %s
+        """
+        cursor.execute(select_query, (centra_name, production_date))
+        result = cursor.fetchone()
+
+        if result:
+            dried_leaves_batch = {
+                'id': result[0],
+                'centra_name': result[1],
+                'date_dried': result[2].strftime('%Y-%m-%d'),
+                'weight_dried': result[3]
+            }
+            return dried_leaves_batch
+        else:
+            raise HTTPException(status_code=404, detail=f"No dried leaves batch found for {centra_name} on {production_date}")
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dried leaves batch: {str(e)}")
+
+    finally:
+        cursor.close()
+
+
 
 
 
