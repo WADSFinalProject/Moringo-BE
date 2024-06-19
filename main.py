@@ -3,6 +3,7 @@ import mysql.connector
 import firebase_admin
 from firebase_admin import credentials, auth
 from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from pyzbar.pyzbar import decode
 from PIL import Image
 import io
 from fastapi.responses import JSONResponse
@@ -22,6 +23,7 @@ from typing import Optional, List, Dict
 from fpdf import FPDF
 from google.cloud.sql.connector import connector
 from mysql.connector import Error
+import base64
 
 app = FastAPI(
     description="Hi Emir!",
@@ -37,7 +39,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
-
 
 # Firebase config
 firebase_config = {
@@ -345,10 +346,17 @@ def create_token(email: str) -> str:
 
 
 
-def generate_barcode(barcode_value: str, save_path: str):
+# Utility function to generate barcode and return bytes
+def generate_barcode(barcode_value: str) -> bytes:
     code128 = barcode.get_barcode_class('code128')
+    print(barcode_value)
     barcode_obj = code128(barcode_value, writer=ImageWriter())
-    barcode_obj.save(save_path)
+    
+    # Convert the barcode image to bytes
+    stream = io.BytesIO()
+    barcode_obj.write(stream)
+    barcode_image_bytes = stream.getvalue()
+    return barcode_image_bytes
 ############################################################ FUNCTIONS END ########################################################
 ########################################################### VARIABLES #############################################################
 SECRET_KEY = "epik_key"
@@ -525,6 +533,37 @@ def get_drying_machine_remaining_time(centra_name: str):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         cursor.close()
+
+@app.get('/shipments/{shipment_id}')
+def get_shipment_based_on_id(shipment_id: int):
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Query to get the remaining time for the specified centra_name
+        query = "SELECT id, package_weight, total_package, sender_address, receiver_address, expedition, date_shipped FROM centra_shipments WHERE id = %s"
+        cursor.execute(query, (shipment_id,))
+        result = cursor.fetchone()
+
+        if result is None:
+            raise HTTPException(status_code=404, detail="Machine with given centra_name not found")
+        
+        return_result = {
+            "id": result[0],
+            "weight": result[1],
+            "package_count": result[2],
+            "sender_address": result[3],
+            "receiver_address": result[4],
+            "expedition": result[5],
+            "date_shipped": result[6],
+        }
+
+        return {"result": return_result}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        cursor.close()
+
 
 @app.get('/centra/powder_machine_remaining_time/{centra_name}')
 def get_drying_machine_remaining_time(centra_name: str):
@@ -977,6 +1016,104 @@ def get_moringa_batches(centra_name: str):
     finally:
         cursor.close()
 
+@app.get('/all_moringa_batches')
+def get_all_moringa_batches():
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, weight_received, entryDate, entryTime, expiry_time, centra_name
+            FROM centra_moringa_batches
+        """
+        cursor.execute(select_query)
+        batches = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        batch_list = [
+            {
+                "id": batch[0],
+                "weight": batch[1],
+                "manufactureDate": batch[2],
+                "manufactureTime": batch[3],
+                "expiry": batch[4],
+                "centra_branch": batch[5]
+            }
+            for batch in batches
+        ]
+
+        return {"batches": batch_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
+
+@app.get('/all_dried_leaves_batches')
+def get_all_dried_leaves_batches():
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, weight_dried, date_dried, centra_name
+            FROM centra_drying_results
+        """
+        cursor.execute(select_query)
+        batches = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        batch_list = [
+            {
+                "id": batch[0],
+                "weight": batch[1],
+                "manufacture": batch[2],
+                "centra_branch": batch[3]
+            }
+            for batch in batches
+        ]
+
+        return {"batches": batch_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
+
+@app.get('/bagus_powder_batches')
+def get_bagus_powder_batches():
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, powder_weight, date_recorded, centra_name
+            FROM centra_powder_batches WHERE is_shipped = 0
+        """
+        cursor.execute(select_query)
+        batches = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        batch_list = [
+            {
+                "id": batch[0],
+                "weight": batch[1],
+                "manufacture": batch[2],
+                "centra_branch": batch[3]
+            }
+            for batch in batches
+        ]
+
+        return {"batches": batch_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
+
 @app.get('/centra/dried_leaves_batches')
 def get_dried_leaves_batches(centra_name: str):
     cursor = mysql_connection.cursor()
@@ -1025,17 +1162,15 @@ def get_powder_batches(centra_name: str):
         cursor.execute(select_query, (centra_name,))
         results = cursor.fetchall()
 
-        if results:
-            powder_batches = []
-            for result in results:
-                powder_batches.append({
-                    'id': result[0],
-                    'date_recorded': result[1].strftime('%Y-%m-%d'),
-                    'powder_weight': result[2]
-                })
-            return powder_batches
-        else:
-            raise HTTPException(status_code=404, detail=f"No powder batches found for {centra_name}")
+        powder_batches = []
+        for result in results:
+            powder_batches.append({
+                'id': result[0],
+                'date_recorded': result[1].strftime('%Y-%m-%d'),
+                'powder_weight': result[2]
+            })
+        
+        return powder_batches
 
     except mysql.connector.Error as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch powder batches: {str(e)}")
@@ -1270,6 +1405,29 @@ async def update_processing(data: UpdateProcessingSchema):
     finally:
         cursor.close()
 
+@app.put('/shipments/{shipment_id}')
+async def update_shipment_arrival(shipment_id: str):
+    if not shipment_id:
+        raise HTTPException(status_code=400, detail="No ID provided")
+
+    cursor = mysql_connection.cursor()
+
+    try:
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("UPDATE centra_shipments SET is_Delivered = 1, arrival_date = %s WHERE id = %s", (current_date, shipment_id,))
+        mysql_connection.commit()
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No rows were updated. Check if the IDs exist.")
+
+        return {"message": f"Updated is_processing to 1 for IDs: {id}"}
+
+    except mysql.connector.Error as err:
+        mysql_connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {err}")
+
+    finally:
+        cursor.close()
 
 @app.put('/update_powder_shipping')
 async def update_powder_shipping(powder_id: int):
@@ -1313,12 +1471,16 @@ def get_centra_shipments(centra_name: str):
                 "date_shipped": shipment[4],
                 "total_package": shipment[5],
                 "expedition": shipment[6],
-                "barcode": shipment[7],
+                "barcode": base64.b64encode(shipment[7]).decode('utf-8') if shipment[7] is not None else None,
                 "is_Delivered": shipment[8],
                 "arrival_date": shipment[9]
             }
             for shipment in shipments
         ]
+
+        for shipment in shipments:
+            if shipment[7] is not None:
+                print(base64.b64encode(shipment[7]).decode('utf-8'))
 
         return {"shipments": shipment_list}
 
@@ -1329,66 +1491,67 @@ def get_centra_shipments(centra_name: str):
         cursor.close()
 
 
+# Endpoint to record shipment
 @app.post('/centra/shipments')
-async def record_shipment(shipment_data: ShipmentSchema, current_user: dict = Depends(get_current_user)):
+async def record_shipment(shipment_data: ShipmentSchema):
     powder_batch_id = shipment_data.powder_batch_id
     package_weight = shipment_data.package_weight
     total_package = shipment_data.total_package
     centra_sender = shipment_data.centra_sender
     sender_address = shipment_data.sender_address
-    recever_address = shipment_data.receiver_address
+    receiver_address = shipment_data.receiver_address
     expedition = shipment_data.expedition
     date_shipped = shipment_data.date_shipped
 
-    # Generate barcode
+    # Generate barcode image bytes
     barcode_value = f"{powder_batch_id}"
-    barcode_filename = f"barcode_{powder_batch_id}.png"
-    barcode_image_path = os.path.join(barcode_directory, barcode_filename)
-    generate_barcode(barcode_value, barcode_image_path)
+    barcode_image_bytes = generate_barcode(barcode_value)
 
+    # Insert data into the database including the barcode image bytes
     cursor = mysql_connection.cursor()
     insert_query = """
         INSERT INTO centra_shipments (powder_batch_id, package_weight, total_package, centra_sender, sender_address, receiver_address, expedition, date_shipped, barcode)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
-
     try:
-        cursor.execute(insert_query, (powder_batch_id, package_weight, total_package, centra_sender, sender_address, recever_address, expedition, date_shipped, barcode_image_path))
+        cursor.execute(insert_query, (powder_batch_id, package_weight, total_package, centra_sender, sender_address, receiver_address, expedition, date_shipped, barcode_image_bytes))
         mysql_connection.commit()
+        cursor.close()
 
-        return {"message": "Shipment added"}
+        return {"message": "Shipment added successfully"}
 
     except mysql.connector.Error as err:
         mysql_connection.rollback()
-        raise HTTPException(status_code=500, detail=f"Database error: {err}")
-    
-    finally:
         cursor.close()
+        raise HTTPException(status_code=500, detail=f"Database error: {err}")
+
+    except Exception as e:
+        cursor.close()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+    finally:
+      cursor.close()
 
 
+@app.post("/scan-barcode/", response_model=List[Barcode])
+async def scan_barcode(barcode_string: str):
+    # Decode the barcode string
+    try:
+        decoded_objects = decode(barcode_string.encode('utf-8'))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error decoding barcode: {str(e)}")
 
+    if not decoded_objects:
+        raise HTTPException(status_code=400, detail="No barcode found")
 
+    # Extract barcode data
+    barcodes = []
+    for obj in decoded_objects:
+        barcode_data = obj.data.decode('utf-8')
+        barcode_type = obj.type
+        barcodes.append(Barcode(barcode_data=barcode_data, barcode_type=barcode_type))
 
-@app.post('/generate-barcode/')
-async def generate_barcode_endpoint(data: MoringaBatchesSchema):
-    # Extract data from request
-    weight_received = data.weight_received
-    date_received = data.date_received
-
-    # Generate a barcode identifier using the date and weight
-    barcode_id = f"{date_received.replace('-', '')}{int(weight_received)}"
-    # Define the path where the barcode image will be saved
-    barcode_filename = f"barcode_{barcode_id}.png"
-    barcode_image_path = os.path.join(barcode_directory, barcode_filename)
-    
-    # Generate the barcode
-    generate_barcode(barcode_id, barcode_image_path)
-    
-    return JSONResponse(content={"message": "Barcode generated successfully.", "barcode_filename": barcode_filename}, status_code=201)
-
-
-
-
+    return barcodes
 
 # Endpoint to generate receipt
 @app.get('/centra/generate_receipt/{shipment_id}')
