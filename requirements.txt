@@ -1,0 +1,17 @@
+barcode_generator==0.1rc15
+fastapi==0.111.0
+firebase_admin==6.5.0
+fpdf==1.7.2
+mysql_connector_repackaged==0.3.1
+Pillow==10.3.0
+protobuf==5.27.1
+pydantic==2.7.4
+PyJWT==2.8.0
+pymysql==1.1.1
+pyrebase==3.0.27
+requests==2.16.0
+requests-toolbelt==0.7.0
+cachecontrol==0.12.6
+pyzbar==0.1.9
+SQLAlchemy==2.0.30
+uvicorn==0.30.1
