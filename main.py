@@ -3,7 +3,6 @@ import mysql.connector
 import firebase_admin
 from firebase_admin import credentials, auth
 from fastapi import FastAPI, HTTPException, Depends, Query, Header
-from pyzbar.pyzbar import decode
 from PIL import Image
 import io
 from fastapi.responses import JSONResponse
