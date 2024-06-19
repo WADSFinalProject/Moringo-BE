@@ -36,7 +36,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://moringo-b9kgn2lbp-brandon-salims-projects.vercel.app"], 
+    allow_origins=["https://moringo-fe-eta.vercel.app/"], 
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
