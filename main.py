@@ -1390,25 +1390,6 @@ async def generate_barcode_endpoint(data: MoringaBatchesSchema):
 
 
 
-@app.post("/scan-barcode/", response_model=List[Barcode])
-async def scan_barcode(barcode_string: str):
-    # Decode the barcode string
-    try:
-        decoded_objects = decode(barcode_string.encode('utf-8'))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error decoding barcode: {str(e)}")
-
-    if not decoded_objects:
-        raise HTTPException(status_code=400, detail="No barcode found")
-
-    # Extract barcode data
-    barcodes = []
-    for obj in decoded_objects:
-        barcode_data = obj.data.decode('utf-8')
-        barcode_type = obj.type
-        barcodes.append(Barcode(barcode_data=barcode_data, barcode_type=barcode_type))
-
-    return barcodes
 
 # Endpoint to generate receipt
 @app.get('/centra/generate_receipt/{shipment_id}')
