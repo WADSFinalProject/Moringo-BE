@@ -11,3 +11,4 @@ psycopg2-binary==2.9.9
 bcrypt==4.1.0
 mysql-connector-python==8.0.33  # or a specific version
 pymysql==1.1.0  # or a specific version
+firebase-admin==12.1.1
