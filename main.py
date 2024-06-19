@@ -3,6 +3,7 @@ import mysql.connector
 import firebase_admin
 from firebase_admin import credentials, auth
 from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from pyzbar.pyzbar import decode
 from PIL import Image
 import io
 from fastapi.responses import JSONResponse
@@ -13,7 +14,6 @@ import pyrebase
 import jwt
 from datetime import datetime, timedelta
 import time
-import threading
 from fastapi import BackgroundTasks, File, UploadFile, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import barcode
@@ -22,7 +22,6 @@ import os
 from typing import Optional, List, Dict
 from fpdf import FPDF
 from google.cloud.sql.connector import connector
-import pymysql
 from mysql.connector import Error
 
 app = FastAPI(
@@ -34,7 +33,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://moringo-fe-eta.vercel.app/"], 
+    allow_origins=["http://localhost:5173"], 
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
@@ -222,7 +221,6 @@ class UserEditSchema(BaseModel):
     username: Optional[str]
     email: Optional[str]
     user_role: Optional[str] = Field(None, pattern="^(Centra|XYZ|Harbor)$")
-    phone_number: Optional[str]
     first_name: Optional[str]
     last_name: Optional[str]
     branch: Optional[str]
@@ -765,7 +763,75 @@ async def get_current_user_details(Authorization: Optional[str] = Header(None)):
     current_user = get_current_user(token)
     return current_user
 
+@app.get('/all_existing_users')
+def get_all_existing_users():
+    cursor = mysql_connection.cursor()
 
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, first_name, last_name, username,  email, user_role, branch
+            FROM user_signups
+            WHERE status = %s
+        """
+        cursor.execute(select_query, ("approved",))
+        users = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        user_list = [
+            {
+                "number": user[0],
+                "name": user[1] + " " + user[2],
+                "username": user[3],
+                "email": user[4],
+                "userType": user[5],
+                "branch": user[6]
+            }
+            for user in users
+        ]
+
+        return {"users": user_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
+
+@app.get('/all_pending_users')
+def get_all_pending_users():
+    cursor = mysql_connection.cursor()
+
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, first_name, last_name, username,  email, user_role, branch
+            FROM user_signups
+            WHERE status = %s
+        """
+        cursor.execute(select_query, ("pending",))
+        users = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        user_list = [
+            {
+                "number": user[0],
+                "name": user[1] + " " + user[2],
+                "username": user[3],
+                "email": user[4],
+                "userType": user[5],
+                "branch": user[6]
+            }
+            for user in users
+        ]
+
+        return {"users": user_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
 
 @app.post('/reset_password')
 async def reset_password(reset_data: ResetPasswordSchema, current_user: dict = Depends(get_current_user)):
@@ -955,7 +1021,7 @@ def get_powder_batches(centra_name: str):
         select_query = """
             SELECT id, date_recorded, powder_weight
             FROM centra_powder_batches
-            WHERE centra_name = %s
+            WHERE centra_name = %s AND is_shipped = 0
         """
         cursor.execute(select_query, (centra_name,))
         results = cursor.fetchall()
@@ -1205,26 +1271,17 @@ async def update_processing(data: UpdateProcessingSchema):
     finally:
         cursor.close()
 
-@app.put('/update_powder_shipping')
-async def update_powder_shipping(data: UpdateProcessingSchema):
-    ids = data.ids
-    if not ids:
-        raise HTTPException(status_code=400, detail="No IDs provided")
 
-    # Create the SQL query to update the is_processing column
-    placeholders = ', '.join(['%s'] * len(ids))
-    query = f"UPDATE centra_drying_results SET is_processing = 1 WHERE id IN ({placeholders})"
+@app.put('/update_powder_shipping')
+async def update_powder_shipping(powder_id: int):
 
     cursor = mysql_connection.cursor()
 
     try:
-        cursor.execute(query, ids)
+        cursor.execute("UPDATE centra_powder_batches SET is_shipped = 1 WHERE id = %s", (powder_id,))
         mysql_connection.commit()
 
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="No rows were updated. Check if the IDs exist.")
-
-        return {"message": f"Updated is_processing to 1 for IDs: {ids}"}
+        return {"message": f"Updated is_shipping to 1 for ID: {powder_id}"}
 
     except mysql.connector.Error as err:
         mysql_connection.rollback()
@@ -1233,7 +1290,44 @@ async def update_powder_shipping(data: UpdateProcessingSchema):
     finally:
         cursor.close()
 
+@app.get('/centra/shipments')
+def get_centra_shipments(centra_name: str):
+    cursor = mysql_connection.cursor()
 
+    try:
+        # Fetch data from centra_moringa_batches table based on the centra_name
+        select_query = """
+            SELECT id, sender_address, receiver_address, package_weight, date_shipped, total_package, expedition, barcode, is_Delivered, arrival_date
+            FROM centra_shipments
+            WHERE centra_sender = %s
+        """
+        cursor.execute(select_query, (centra_name,))
+        shipments = cursor.fetchall()
+
+        # Return the data as a list of dictionaries
+        shipment_list = [
+            {
+                "id": shipment[0],
+                "sender_address": shipment[1],
+                "receiver_address": shipment[2], 
+                "package_weight": shipment[3],
+                "date_shipped": shipment[4],
+                "total_package": shipment[5],
+                "expedition": shipment[6],
+                "barcode": shipment[7],
+                "is_Delivered": shipment[8],
+                "arrival_date": shipment[9]
+            }
+            for shipment in shipments
+        ]
+
+        return {"shipments": shipment_list}
+
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    finally:
+        cursor.close()
 
 
 @app.post('/centra/shipments')
@@ -1248,8 +1342,8 @@ async def record_shipment(shipment_data: ShipmentSchema, current_user: dict = De
     date_shipped = shipment_data.date_shipped
 
     # Generate barcode
-    barcode_value = f"{date_shipped}-{expedition}-{total_package}"
-    barcode_filename = f"barcode_{date_shipped}_{expedition}_{total_package}.png"
+    barcode_value = f"{powder_batch_id}"
+    barcode_filename = f"barcode_{powder_batch_id}.png"
     barcode_image_path = os.path.join(barcode_directory, barcode_filename)
     generate_barcode(barcode_value, barcode_image_path)
 
