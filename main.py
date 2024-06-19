@@ -23,7 +23,6 @@ from typing import Optional, List, Dict
 from fpdf import FPDF
 from google.cloud.sql.connector import connector
 import pymysql
-import sqlalchemy
 from mysql.connector import Error
 
 app = FastAPI(
