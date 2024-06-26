@@ -1,50 +1,33 @@
-# fastapidsd [FAST API DEEP SEA DIVERS]
-
-Signup and Logins fully work, with the logic of Admin approvals for user signups.
-
-## User Signups
-
-User signups accept the parameters: `username`, `email`, `password`,`user_role`, `country code`, `phone number`, `first name`, and `last name`. These parameters will be stored in the MySQL database, and the credentials will be sent to the admin's email for approval. At this stage, the account is not yet created in Firebase.
-
-## User Logins
-
-User logins accept the parameters: `email` and `password`. After a successful login, it will return a token for the current user session.
-
-## Admin Approval Logic
-
-The admin has an approval endpoint (`/admin/approve/{email}/{decision}`) in the backend, which accepts the parameters: `email` and `decision`. 
-
-- `email`: The target email to decide the fate of.
-- `decision`: The decision to approve or reject the signup. This should be either "yes" or "no".
-
-If the decision is "yes", the account will be created in Firebase, allowing the user to log in. If the decision is "no", the account credentials will be deleted from the MySQL database, as if the signup request never happened.
+# Moringo Back End
+![image](https://github.com/WADSFinalProject/Moringo-BE/assets/114371692/bd7c3831-e544-4eed-8c18-4fbb7ad3482d)
 
 
-## IMPORTANT NOTE FOR IMPORTS!!!
-DO NOT 
-pip install pyrebase
+This the repository for the back end part of Moringo. The back end is bulit using Python and FastAPI as the framework.
 
-it never works... i tried on two laptops and it just never does.
+## Installation
+1. Clone the repository
+   ```
+   git clone https://github.com/WADSFinalProject/Moringo-BE
+   ```
+3. Install dependencies
+   ```
+   pip install -r requirements.txt
+   ```
 
-INSTEAD DO 
+@@ Usage
+You can just click start on your VSC and it will start the swagger UI.
 
+## Video
+https://drive.google.com/drive/u/1/folders/1jQOZGJLJBr49u6Y_zBoQEt-TckN9P5AD
 
+## Deployment
+1. Open and log in to vercel
+2. Create a new project
+3. link the github repository
+4. Deploy
 
-
-
-pip install pycryptodome 
-
-
-
-pip install pyrebase4
-
-
-
-now dat works.
-
-## QUESTIONS?
-I'm mostly active on Whatsapp, message me anytime for any kind of questions regarding the backends, or if you have a suggestion in improvements or restructuring (harman).
-
-
-## WHAT HAPPENED IN 1989?
-Nothing
+## Contributors
+= Alya Nursalma Ridwan - 2602184265 
+- Harman Singh Minhas - 2602184220
+- Micky Malvino Kusandiwinata - 2602174522
+- Brilian Yudha - 2440123522
