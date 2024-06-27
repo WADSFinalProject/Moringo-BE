@@ -20,6 +20,11 @@ You can just click start on your VSC and it will start the swagger UI.
 ## Video
 https://drive.google.com/drive/u/1/folders/1jQOZGJLJBr49u6Y_zBoQEt-TckN9P5AD
 
+## Database Instructions
+1. Create a new database called user_request
+2. Dump all the sql files as queries into this newly created database "user_request"
+
+
 ## Deployment
 1. Open and log in to vercel
 2. Create a new project
